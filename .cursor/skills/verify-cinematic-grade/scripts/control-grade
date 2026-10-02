@@ -1,0 +1,855 @@
+#!/usr/bin/python3
+"""Drive the loaded Cinematic Grade applet on the one Cinnamon session.
+
+Uses /usr/bin/python3 because GTK, Gdk, and Xlib are not installed in .venv.
+"""
+
+import fcntl
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gdk, GdkPixbuf, Gtk  # noqa: E402
+from Xlib import X, XK, display as xdisplay  # noqa: E402
+from Xlib.ext import xtest  # noqa: E402
+
+UUID = "iron-within-panel@mateo"
+EXT_UUID = "iron-within@mateo"
+REPO = Path(__file__).resolve().parents[4]
+CLI = REPO / "bin" / "cinematic-grade"
+RUN_DIR = Path("/tmp/iron-within-verify")
+STATE_PATH = RUN_DIR / "state.json"
+LOCK_PATH = RUN_DIR / "lock"
+EVAL_PATH = RUN_DIR / "eval.json"
+RESTORE_PATH = Path.home() / ".config" / "iron-within" / "unredirect.json"
+PRESETS = ("subtle", "cinematic", "iron_within", "extreme")
+MODIFIERS = {
+    "Super": "Super_L",
+    "Control": "Control_L",
+    "Shift": "Shift_L",
+    "Alt": "Alt_L",
+    "Primary": "Control_L",
+}
+
+APPLET_HEAD = """
+var __applet = imports.ui.appletManager.get_object_for_uuid(%(uuid)s, %(uuid)s);
+if (!__applet) throw new Error("cinematic grade applet is not loaded");
+""" % {"uuid": json.dumps(UUID)}
+
+
+class HarnessError(RuntimeError):
+    pass
+
+
+def repo_root():
+    if not CLI.is_file():
+        raise HarnessError("bin/cinematic-grade is missing at %s" % CLI)
+    return REPO
+
+
+def ensure_run_dir():
+    RUN_DIR.mkdir(mode=0o700, exist_ok=True)
+
+
+def lock():
+    ensure_run_dir()
+    handle = LOCK_PATH.open("a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise HarnessError("another control-grade command is running")
+    return handle
+
+
+def load_state():
+    if not STATE_PATH.exists():
+        return None
+    return json.loads(STATE_PATH.read_text())
+
+
+def save_state(state):
+    ensure_run_dir()
+    tmp = STATE_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    os.chmod(tmp, 0o600)
+    tmp.replace(STATE_PATH)
+
+
+def require_open():
+    state = load_state()
+    if not state or not state.get("open"):
+        raise HarnessError("no open verification run. Run control-grade begin first.")
+    return state
+
+
+def gsettings_get(schema, key):
+    proc = subprocess.run(
+        ["gsettings", "get", schema, key],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return proc.stdout.strip()
+
+
+def muffin_unredirect():
+    raw = gsettings_get("org.cinnamon.muffin", "unredirect-fullscreen-windows")
+    if raw == "true":
+        return True
+    if raw == "false":
+        return False
+    raise HarnessError("unexpected muffin unredirect value %s" % raw)
+
+
+def read_restore():
+    if not RESTORE_PATH.exists():
+        return None
+    return RESTORE_PATH.read_text().strip()
+
+
+def enabled_list(key):
+    raw = gsettings_get("org.cinnamon", key)
+    return raw
+
+
+def cinnamon_eval(body):
+    ensure_run_dir()
+    if EVAL_PATH.exists():
+        EVAL_PATH.unlink()
+    js = (
+        "var Gio = imports.gi.Gio;\n"
+        "function __dump(obj) {\n"
+        "  var __f = Gio.File.new_for_path(%s);\n"
+        "  __f.replace_contents(JSON.stringify(obj), null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);\n"
+        "}\n"
+        "%s\n"
+        "true;\n"
+    ) % (json.dumps(str(EVAL_PATH)), body)
+    proc = subprocess.run(
+        [
+            "gdbus", "call", "--session",
+            "--dest", "org.Cinnamon",
+            "--object-path", "/org/Cinnamon",
+            "--method", "org.Cinnamon.Eval",
+            js,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    out = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode != 0 or out.strip().startswith("(false"):
+        raise HarnessError("Cinnamon eval failed: %s" % out.strip())
+    if not EVAL_PATH.exists():
+        raise HarnessError("Cinnamon eval wrote no result: %s" % out.strip())
+    return json.loads(EVAL_PATH.read_text())
+
+
+def applet_snapshot():
+    body = APPLET_HEAD + """
+var __actor = __applet.actor;
+var __pos = __actor.get_transformed_position();
+var __scale = 1;
+try {
+  __scale = imports.gi.St.ThemeContext.get_for_stage(global.stage).scale_factor;
+} catch (e) {}
+__dump({
+  x: __pos[0],
+  y: __pos[1],
+  w: __actor.width,
+  h: __actor.height,
+  mapped: !!__actor.mapped,
+  scale: __scale,
+  stageW: global.stage.width,
+  stageH: global.stage.height,
+  tooltip: __applet._applet_tooltip_text || "",
+  iconStyle: __applet._applet_icon ? String(__applet._applet_icon.style || "") : "",
+  instanceId: __applet.instance_id,
+  compositeFullscreen: __applet.settings.getValue("composite-fullscreen"),
+  presetSetting: __applet.settings.getValue("preset"),
+  intensitySetting: __applet.settings.getValue("intensity"),
+  shortcutSetting: __applet.settings.getValue("keybinding") || "",
+  status: __applet.status()
+});
+"""
+    snap = cinnamon_eval(body)
+    snap["muffinUnredirect"] = muffin_unredirect()
+    snap["restoreFile"] = read_restore()
+    return snap
+
+
+def screen_size(disp):
+    screen = disp.screen()
+    return screen.width_in_pixels, screen.height_in_pixels
+
+
+def open_display():
+    if not os.environ.get("DISPLAY"):
+        raise HarnessError("DISPLAY is not set")
+    return xdisplay.Display()
+
+
+def emit(obj):
+    json.dump(obj, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+
+
+def cmd_doctor():
+    failures = []
+    details = {}
+    if not os.environ.get("DISPLAY"):
+        failures.append("DISPLAY is not set")
+    try:
+        disp = open_display()
+        sw, sh = screen_size(disp)
+        details["screen"] = [sw, sh]
+        if not hasattr(disp, "xtest_fake_input"):
+            failures.append("XTest is not available on this display")
+    except Exception as exc:
+        failures.append("X display: %s" % exc)
+        disp = None
+    try:
+        snap = applet_snapshot()
+    except Exception as exc:
+        failures.append(str(exc))
+        snap = None
+    if snap:
+        status = snap.get("status") or {}
+        details["status"] = status
+        details["tooltip"] = snap.get("tooltip")
+        root = str(repo_root())
+        checks = [
+            (status.get("kind") == "applet", "status.kind is not applet"),
+            (status.get("owner") == "applet", "status.owner is not applet"),
+            (status.get("desktop") == "cinnamon", "status.desktop is not cinnamon"),
+            (status.get("session") == "x11", "status.session is not x11"),
+            (status.get("root") == root, "status.root is not %s" % root),
+            (status.get("shaders") is True, "shaders are not loaded"),
+            (status.get("error") is None, "status.error is %r" % status.get("error")),
+            (status.get("workingSpace") == "encoded-framebuffer", "shell has not loaded this checkout (workingSpace missing or wrong)"),
+            (str(snap.get("tooltip") or "").startswith("Cinematic grade:"), "tooltip is not from this checkout"),
+        ]
+        for ok, message in checks:
+            if not ok:
+                failures.append(message)
+        if disp is not None:
+            scale = snap.get("scale") or 1
+            sw, sh = details["screen"]
+            if abs(snap["stageW"] * scale - sw) > 2 or abs(snap["stageH"] * scale - sh) > 2:
+                failures.append("stage size does not match the X screen")
+    applets = enabled_list("enabled-applets")
+    extensions = enabled_list("enabled-extensions")
+    details["enabledApplets"] = applets
+    details["enabledExtensions"] = extensions
+    if UUID not in applets:
+        failures.append("panel applet is not in enabled-applets")
+    if EXT_UUID in extensions:
+        failures.append("shell extension is enabled")
+    state = load_state()
+    report = {
+        "ok": not failures,
+        "failures": failures,
+        "runOpen": bool(state and state.get("open")),
+        "repo": str(repo_root()),
+    }
+    report.update(details)
+    emit(report)
+    return 0 if report["ok"] else 1
+
+
+def cmd_begin():
+    state = load_state()
+    if state and state.get("open"):
+        raise HarnessError("a verification run is already open. Run control-grade cleanup. Refusing to drive the shared Cinnamon session twice.")
+    snap = applet_snapshot()
+    if not snap["status"].get("active") and snap["restoreFile"] is not None:
+        raise HarnessError("unredirect.json exists while the grade is off. Refusing to start on a dirty fullscreen hold.")
+    fresh = {
+        "open": True,
+        "saved": {
+            "active": bool(snap["status"]["active"]),
+            "preset": snap["presetSetting"],
+            "intensity": snap["intensitySetting"],
+            "composite": bool(snap["compositeFullscreen"]),
+            "shortcut": snap["shortcutSetting"],
+            "muffinUnredirect": snap["muffinUnredirect"],
+            "restoreFile": snap["restoreFile"],
+        },
+        "swatchPid": None,
+        "configurePid": None,
+    }
+    save_state(fresh)
+    emit(fresh)
+    return 0
+
+
+def settings_identity():
+    return cinnamon_eval(
+        APPLET_HEAD
+        + "__dump({uuid: String(__applet.settings.uuid), settingsId: String(__applet.settings.instanceId)});"
+    )
+
+
+def settings_file(info):
+    return Path.home() / ".config" / "cinnamon" / "spices" / info["uuid"] / ("%s.json" % info["settingsId"])
+
+
+def write_settings(updates):
+    # xlet-settings writes this file from outside the applet, then calls
+    # org.Cinnamon.updateSetting. setValue on the live object stores the
+    # value before that reload, so the applet treats it as unchanged and the
+    # grade does not move.
+    info = settings_identity()
+    path = settings_file(info)
+    data = json.loads(path.read_text())
+    for key, value in updates.items():
+        if key not in data or "value" not in data[key]:
+            raise HarnessError("settings file has no %s value" % key)
+        data[key]["value"] = value
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(json.dumps(data, indent=4) + "\n")
+    os.chmod(tmp, path.stat().st_mode & 0o777)
+    tmp.replace(path)
+    key = next(iter(updates))
+    proc = subprocess.run(
+        [
+            "gdbus", "call", "--session",
+            "--dest", "org.Cinnamon",
+            "--object-path", "/org/Cinnamon",
+            "--method", "org.Cinnamon.updateSetting",
+            info["uuid"], info["settingsId"], key, "null",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise HarnessError((proc.stderr or proc.stdout).strip() or "updateSetting failed")
+    return applet_snapshot()
+
+
+def apply_settings(preset, intensity, composite):
+    write_settings({
+        "preset": preset,
+        "intensity": intensity,
+        "composite-fullscreen": bool(composite),
+    })
+
+
+def set_active(active):
+    arg = "on" if active else "off"
+    proc = subprocess.run([str(CLI), arg], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise HarnessError(proc.stderr.strip() or proc.stdout.strip() or "cinematic-grade %s failed" % arg)
+
+
+def pid_alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def stop_pid(pid):
+    if not pid_alive(pid):
+        return
+    try:
+        os.killpg(pid, 15)
+    except OSError:
+        try:
+            os.kill(pid, 15)
+        except OSError:
+            return
+    deadline = time.time() + 2
+    while pid_alive(pid) and time.time() < deadline:
+        time.sleep(0.05)
+    if pid_alive(pid):
+        try:
+            os.killpg(pid, 9)
+        except OSError:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+
+
+def cmd_cleanup():
+    state = load_state()
+    if not state or not state.get("open"):
+        print("no open run")
+        return 0
+    stop_pid(state.get("swatchPid"))
+    stop_pid(state.get("configurePid"))
+    saved = state["saved"]
+    apply_settings(saved["preset"], saved["intensity"], saved["composite"])
+    set_active(saved["active"])
+    state["open"] = False
+    state["swatchPid"] = None
+    state["configurePid"] = None
+    save_state(state)
+    emit({"restored": saved, "observe": applet_snapshot()})
+    return 0
+
+
+def cmd_observe():
+    emit(applet_snapshot())
+    return 0
+
+
+def actor_point(snap, disp):
+    if not snap.get("mapped"):
+        raise HarnessError("applet actor is not mapped")
+    scale = snap.get("scale") or 1
+    width = snap["w"] * scale
+    height = snap["h"] * scale
+    if width < 8 or height < 8 or width > 96 or height > 96:
+        raise HarnessError("applet actor size is not a panel icon: %sx%s" % (width, height))
+    x = int(round(snap["x"] * scale + width / 2))
+    y = int(round(snap["y"] * scale + height / 2))
+    sw, sh = screen_size(disp)
+    if x < 0 or y < 0 or x >= sw or y >= sh:
+        raise HarnessError("applet actor is outside the screen")
+    edge = min(x, y, sw - 1 - x, sh - 1 - y)
+    if edge > 80:
+        raise HarnessError("applet actor is not within 80px of a screen edge. Refusing to click %s,%s." % (x, y))
+    return x, y
+
+
+def pointer(disp):
+    query = disp.screen().root.query_pointer()
+    return query.root_x, query.root_y
+
+
+def move_pointer(disp, x, y):
+    disp.xtest_fake_input(X.MotionNotify, x=x, y=y)
+    disp.sync()
+
+
+def click_button(disp, x, y):
+    home = pointer(disp)
+    move_pointer(disp, x, y)
+    time.sleep(0.05)
+    disp.xtest_fake_input(X.ButtonPress, 1, x=x, y=y)
+    disp.sync()
+    time.sleep(0.05)
+    disp.xtest_fake_input(X.ButtonRelease, 1, x=x, y=y)
+    disp.sync()
+    time.sleep(0.05)
+    move_pointer(disp, home[0], home[1])
+    disp.sync()
+
+
+def poll_active(want):
+    deadline = time.time() + 3
+    last = None
+    while True:
+        last = applet_snapshot()
+        if bool(last["status"]["active"]) is want:
+            return last
+        if time.time() >= deadline:
+            return last
+        time.sleep(0.1)
+
+
+def cmd_click():
+    require_open()
+    disp = open_display()
+    before = applet_snapshot()
+    x, y = actor_point(before, disp)
+    click_button(disp, x, y)
+    after = poll_active(not bool(before["status"]["active"]))
+    if bool(after["status"]["active"]) is bool(before["status"]["active"]):
+        raise HarnessError("click at %s,%s did not toggle the grade" % (x, y))
+    emit(after)
+    return 0
+
+
+def first_binding(spec):
+    spec = (spec or "").split("::", 1)[0].strip()
+    if not spec:
+        raise HarnessError("shortcut is empty. Click and cinematic-grade still work. Not sending a key.")
+    mods = []
+    rest = spec
+    while rest.startswith("<"):
+        end = rest.find(">")
+        if end < 0:
+            raise HarnessError("shortcut is not a binding: %s" % spec)
+        mods.append(rest[1:end])
+        rest = rest[end + 1:]
+    if not rest:
+        raise HarnessError("shortcut has no key: %s" % spec)
+    return spec, mods, rest
+
+
+def keycode(disp, name):
+    sym = XK.string_to_keysym(name)
+    if sym == 0:
+        raise HarnessError("unknown keysym %s" % name)
+    code = disp.keysym_to_keycode(sym)
+    if not code:
+        raise HarnessError("no keycode for %s" % name)
+    return code
+
+
+def send_binding(disp, mods, key):
+    codes = []
+    for mod in mods:
+        if mod not in MODIFIERS:
+            raise HarnessError("unsupported modifier <%s>" % mod)
+        codes.append(keycode(disp, MODIFIERS[mod]))
+    key_code = keycode(disp, key)
+    for code in codes:
+        disp.xtest_fake_input(X.KeyPress, code)
+    disp.sync()
+    disp.xtest_fake_input(X.KeyPress, key_code)
+    disp.sync()
+    time.sleep(0.08)
+    disp.xtest_fake_input(X.KeyRelease, key_code)
+    disp.sync()
+    for code in reversed(codes):
+        disp.xtest_fake_input(X.KeyRelease, code)
+    disp.sync()
+
+
+def cmd_shortcut():
+    require_open()
+    before = applet_snapshot()
+    sent, mods, key = first_binding(before.get("shortcutSetting") or before["status"].get("shortcut"))
+    disp = open_display()
+    send_binding(disp, mods, key)
+    after = poll_active(not bool(before["status"]["active"]))
+    if bool(after["status"]["active"]) is bool(before["status"]["active"]):
+        raise HarnessError("shortcut %s did not toggle the grade" % sent)
+    after["sent"] = sent
+    emit(after)
+    return 0
+
+
+def cmd_cli(arg):
+    if arg not in ("on", "off", "toggle", "status"):
+        raise HarnessError("usage: control-grade cli on|off|toggle|status")
+    if arg != "status":
+        require_open()
+    proc = subprocess.run([str(CLI), arg], capture_output=True, text=True)
+    sys.stdout.write(proc.stdout)
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+    return proc.returncode
+
+
+def capture_rect(path, x, y, width, height):
+    if width < 1 or height < 1:
+        raise HarnessError("capture rectangle is empty")
+    Gdk.init([])
+    root = Gdk.get_default_root_window()
+    pixbuf = Gdk.pixbuf_get_from_window(root, x, y, width, height)
+    if pixbuf is None:
+        raise HarnessError("screenshot failed")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pixbuf.savev(str(path), "png", [], [])
+    return pixbuf
+
+
+def cmd_shot(path):
+    disp = open_display()
+    snap = applet_snapshot()
+    x, y = actor_point(snap, disp)
+    scale = snap.get("scale") or 1
+    left = int(round(snap["x"] * scale))
+    top = int(round(snap["y"] * scale))
+    width = max(1, int(round(snap["w"] * scale)))
+    height = max(1, int(round(snap["h"] * scale)))
+    capture_rect(path, left, top, width, height)
+    emit({"path": str(path), "x": left, "y": top, "w": width, "h": height, "center": [x, y]})
+    return 0
+
+
+def find_named_window(disp, title):
+    root = disp.screen().root
+    atom = disp.intern_atom("_NET_WM_NAME")
+
+    def walk(win):
+        try:
+            if win.get_wm_name() == title:
+                return win
+        except Exception:
+            pass
+        try:
+            prop = win.get_full_property(atom, 0)
+            if prop and prop.value:
+                raw = prop.value
+                if isinstance(raw, bytes):
+                    text = raw.decode("utf-8", "replace").rstrip("\x00")
+                else:
+                    text = str(raw)
+                if text == title:
+                    return win
+        except Exception:
+            pass
+        try:
+            children = win.query_tree().children
+        except Exception:
+            return None
+        for child in children:
+            found = walk(child)
+            if found is not None:
+                return found
+        return None
+
+    return walk(root)
+
+
+def window_rect(disp, win):
+    root = disp.screen().root
+    geo = win.get_geometry()
+    # Translate the window origin into root coordinates. The inverse call
+    # reports where the root origin sits inside the window.
+    translated = root.translate_coords(win, 0, 0)
+    return translated.x, translated.y, geo.width, geo.height
+
+
+def cmd_swatch(args):
+    if not args or args[0] not in ("open", "shot", "close"):
+        raise HarnessError("usage: control-grade swatch open|shot PATH|close")
+    state = require_open()
+    if args[0] == "open":
+        if pid_alive(state.get("swatchPid")):
+            raise HarnessError("swatch is already open")
+        disp = open_display()
+        sw, sh = screen_size(disp)
+        proc = subprocess.Popen(
+            [sys.executable, __file__, "--swatch-server", str((sw - 220) // 2), str((sh - 220) // 2)],
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=dict(os.environ, GDK_BACKEND="x11"),
+        )
+        state["swatchPid"] = proc.pid
+        save_state(state)
+        deadline = time.time() + 3
+        win = None
+        while time.time() < deadline:
+            win = find_named_window(disp, "cinematic-grade-swatch")
+            if win is not None:
+                break
+            time.sleep(0.1)
+            disp = open_display()
+        if win is None:
+            stop_pid(proc.pid)
+            state["swatchPid"] = None
+            save_state(state)
+            raise HarnessError("swatch window did not map")
+        time.sleep(0.25)
+        disp = open_display()
+        win = find_named_window(disp, "cinematic-grade-swatch") or win
+        rect = window_rect(disp, win)
+        if rect[0] < 0 or rect[1] < 0:
+            stop_pid(proc.pid)
+            state["swatchPid"] = None
+            save_state(state)
+            raise HarnessError("swatch mapped outside the screen at %s" % (rect,))
+        emit({"pid": proc.pid, "rect": list(rect)})
+        return 0
+    if args[0] == "close":
+        stop_pid(state.get("swatchPid"))
+        state["swatchPid"] = None
+        save_state(state)
+        print("swatch closed")
+        return 0
+    if len(args) != 2:
+        raise HarnessError("usage: control-grade swatch shot PATH")
+    disp = open_display()
+    win = find_named_window(disp, "cinematic-grade-swatch")
+    if win is None:
+        raise HarnessError("swatch window is not open")
+    left, top, width, height = window_rect(disp, win)
+    inset = 16
+    capture_rect(args[1], left + inset, top + inset, width - 2 * inset, height - 2 * inset)
+    emit({"path": args[1], "x": left + inset, "y": top + inset, "w": width - 2 * inset, "h": height - 2 * inset})
+    return 0
+
+
+def mean_chroma(path):
+    pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+    width = pixbuf.get_width()
+    height = pixbuf.get_height()
+    stride = pixbuf.get_rowstride()
+    channels = pixbuf.get_n_channels()
+    pixels = pixbuf.get_pixels()
+    x0, x1 = width // 4, (width * 3) // 4
+    y0, y1 = height // 4, (height * 3) // 4
+    if x1 <= x0 or y1 <= y0:
+        raise HarnessError("image is too small to sample")
+    total = 0
+    count = 0
+    for y in range(y0, y1):
+        row = y * stride
+        for x in range(x0, x1):
+            i = row + x * channels
+            red, green, blue = pixels[i], pixels[i + 1], pixels[i + 2]
+            total += max(red, green, blue) - min(red, green, blue)
+            count += 1
+    return total / count
+
+
+def cmd_chroma(path):
+    number = mean_chroma(path)
+    print("%.2f" % number)
+    return 0
+
+
+def cmd_preset(name):
+    require_open()
+    if name not in PRESETS:
+        raise HarnessError("preset must be one of %s" % ", ".join(PRESETS))
+    emit(write_settings({"preset": name}))
+    return 0
+
+
+def cmd_intensity(raw):
+    require_open()
+    try:
+        value = float(raw)
+    except ValueError:
+        raise HarnessError("intensity must be a number from 0 to 1")
+    if value < 0 or value > 1:
+        raise HarnessError("intensity must be a number from 0 to 1")
+    if value == int(value):
+        value = int(value)
+    emit(write_settings({"intensity": value}))
+    return 0
+
+
+def cmd_composite(raw):
+    require_open()
+    if raw not in ("on", "off"):
+        raise HarnessError("usage: control-grade composite on|off")
+    emit(write_settings({"composite-fullscreen": raw == "on"}))
+    return 0
+
+
+def cmd_configure():
+    state = require_open()
+    if pid_alive(state.get("configurePid")):
+        raise HarnessError("xlet-settings is already open for this run")
+    snap = applet_snapshot()
+    proc = subprocess.Popen(
+        ["xlet-settings", "applet", UUID, "-i", str(snap["instanceId"]), "-t", "0"],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    state["configurePid"] = proc.pid
+    save_state(state)
+    emit({"pid": proc.pid, "instanceId": snap["instanceId"]})
+    return 0
+
+
+def run_swatch_server(x, y):
+    window = Gtk.Window(title="cinematic-grade-swatch")
+    window.set_default_size(220, 220)
+    window.set_decorated(False)
+    window.set_keep_above(True)
+    window.move(x, y)
+    provider = Gtk.CssProvider()
+    provider.load_from_data(b"window { background-color: #c0392b; }")
+    window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    window.connect("destroy", Gtk.main_quit)
+    window.show_all()
+    window.present()
+    Gtk.main()
+    return 0
+
+
+def usage():
+    print(
+        "usage: control-grade doctor|begin|cleanup|observe|click|shortcut\n"
+        "       control-grade cli on|off|toggle|status\n"
+        "       control-grade shot PATH | chroma PATH\n"
+        "       control-grade swatch open|shot PATH|close\n"
+        "       control-grade preset NAME | intensity NUMBER | composite on|off | configure",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def main(argv):
+    if len(argv) >= 2 and argv[1] == "--swatch-server":
+        return run_swatch_server(int(argv[2]), int(argv[3]))
+    if len(argv) < 2:
+        return usage()
+    command = argv[1]
+    held = None
+    try:
+        repo_root()
+        if command != "--swatch-server":
+            held = lock()
+        if command == "doctor":
+            return cmd_doctor()
+        if command == "begin":
+            return cmd_begin()
+        if command == "cleanup":
+            return cmd_cleanup()
+        if command == "observe":
+            return cmd_observe()
+        if command == "click":
+            return cmd_click()
+        if command == "shortcut":
+            return cmd_shortcut()
+        if command == "cli":
+            if len(argv) != 3:
+                raise HarnessError("usage: control-grade cli on|off|toggle|status")
+            return cmd_cli(argv[2])
+        if command == "shot":
+            if len(argv) != 3:
+                raise HarnessError("usage: control-grade shot PATH")
+            return cmd_shot(argv[2])
+        if command == "chroma":
+            if len(argv) != 3:
+                raise HarnessError("usage: control-grade chroma PATH")
+            return cmd_chroma(argv[2])
+        if command == "swatch":
+            return cmd_swatch(argv[2:])
+        if command == "preset":
+            if len(argv) != 3:
+                raise HarnessError("usage: control-grade preset NAME")
+            return cmd_preset(argv[2])
+        if command == "intensity":
+            if len(argv) != 3:
+                raise HarnessError("usage: control-grade intensity NUMBER")
+            return cmd_intensity(argv[2])
+        if command == "composite":
+            if len(argv) != 3:
+                raise HarnessError("usage: control-grade composite on|off")
+            return cmd_composite(argv[2])
+        if command == "configure":
+            return cmd_configure()
+        return usage()
+    except HarnessError as exc:
+        print("control-grade: %s" % exc, file=sys.stderr)
+        return 1
+    finally:
+        if held is not None:
+            fcntl.flock(held.fileno(), fcntl.LOCK_UN)
+            held.close()
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except subprocess.TimeoutExpired as exc:
+        print("control-grade: timed out: %s" % exc, file=sys.stderr)
+        sys.exit(1)

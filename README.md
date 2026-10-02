@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/iron-within.jpg" alt="Iron Within" width="160" height="160">
+</p>
+
 <h1 align="center">Cinematic Grade</h1>
 
 https://github.com/user-attachments/assets/3d149e01-b47c-471e-8a52-fb1039219117

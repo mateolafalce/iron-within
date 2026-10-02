@@ -1,0 +1,65 @@
+{
+    "section-main": {
+        "type": "section",
+        "description": "Grade"
+    },
+    "active": {
+        "type": "switch",
+        "default": false,
+        "description": "Active",
+        "tooltip": "Same result as the keyboard shortcut. Off removes the shaders."
+    },
+    "preset": {
+        "type": "combobox",
+        "default": "iron_within",
+        "description": "Preset",
+        "options": {
+            "Subtle": "subtle",
+            "Cinematic": "cinematic",
+            "Iron Within": "iron_within",
+            "Extreme": "extreme"
+        },
+        "tooltip": "Values live in presets.json, next to this extension."
+    },
+    "intensity": {
+        "type": "scale",
+        "default": 1.0,
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.05,
+        "digits": 2,
+        "show-value": true,
+        "description": "Intensity",
+        "tooltip": "0 is the original image. 1 is the full preset."
+    },
+    "section-keys": {
+        "type": "section",
+        "description": "Shortcut"
+    },
+    "toggle-key": {
+        "type": "keybinding",
+        "default": "<Super>g",
+        "description": "Toggle the grade",
+        "tooltip": "Default is Super+G. Pick another combo if that one is already in use."
+    },
+    "show-osd": {
+        "type": "switch",
+        "default": true,
+        "description": "Show a notification when toggling"
+    },
+    "section-display": {
+        "type": "section",
+        "description": "Display"
+    },
+    "composite-fullscreen": {
+        "type": "switch",
+        "default": true,
+        "description": "Keep fullscreen windows composited while the grade is on",
+        "tooltip": "If Muffin is set to unredirect fullscreen windows, those windows skip the shader. While the grade is on, this forces compositing and restores the previous value when the grade turns off. ICC profiles are not touched."
+    },
+    "reload-presets": {
+        "type": "button",
+        "description": "Reload presets.json now",
+        "callback": "reloadPresets"
+    }
+}

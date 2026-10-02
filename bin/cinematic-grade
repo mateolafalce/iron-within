@@ -1,0 +1,76 @@
+#!/bin/bash
+# Talk to the loaded grade. The command is chosen from fixed scripts. Nothing
+# from the shell is pasted into the JavaScript.
+#   cinematic-grade on | off | toggle | status
+set -euo pipefail
+
+CMD="${1:-status}"
+
+case "$CMD" in
+    on)
+        JS=$(cat << 'EOF'
+var targets = [];
+var applet = imports.ui.appletManager.get_object_for_uuid('iron-within-panel@mateo', 'iron-within-panel@mateo');
+var ext = imports.ui.extensionSystem.get_object_for_uuid('iron-within@mateo');
+if (applet) targets.push(applet);
+if (ext) targets.push(ext);
+if (!targets.length) throw new Error('cinematic grade is not loaded');
+for (var i = 0; i < targets.length; i++) targets[i].setActive(true);
+var status = [];
+for (var i = 0; i < targets.length; i++) status.push(targets[i].status());
+status.length === 1 ? status[0] : status;
+EOF
+        )
+        ;;
+    off)
+        JS=$(cat << 'EOF'
+var targets = [];
+var applet = imports.ui.appletManager.get_object_for_uuid('iron-within-panel@mateo', 'iron-within-panel@mateo');
+var ext = imports.ui.extensionSystem.get_object_for_uuid('iron-within@mateo');
+if (applet) targets.push(applet);
+if (ext) targets.push(ext);
+if (!targets.length) throw new Error('cinematic grade is not loaded');
+for (var i = 0; i < targets.length; i++) targets[i].setActive(false);
+var status = [];
+for (var i = 0; i < targets.length; i++) status.push(targets[i].status());
+status.length === 1 ? status[0] : status;
+EOF
+        )
+        ;;
+    toggle)
+        JS=$(cat << 'EOF'
+var targets = [];
+var applet = imports.ui.appletManager.get_object_for_uuid('iron-within-panel@mateo', 'iron-within-panel@mateo');
+var ext = imports.ui.extensionSystem.get_object_for_uuid('iron-within@mateo');
+if (applet) targets.push(applet);
+if (ext) targets.push(ext);
+if (!targets.length) throw new Error('cinematic grade is not loaded');
+for (var i = 0; i < targets.length; i++) targets[i].toggle();
+var status = [];
+for (var i = 0; i < targets.length; i++) status.push(targets[i].status());
+status.length === 1 ? status[0] : status;
+EOF
+        )
+        ;;
+    status)
+        JS=$(cat << 'EOF'
+var targets = [];
+var applet = imports.ui.appletManager.get_object_for_uuid('iron-within-panel@mateo', 'iron-within-panel@mateo');
+var ext = imports.ui.extensionSystem.get_object_for_uuid('iron-within@mateo');
+if (applet) targets.push(applet);
+if (ext) targets.push(ext);
+if (!targets.length) throw new Error('cinematic grade is not loaded');
+var status = [];
+for (var i = 0; i < targets.length; i++) status.push(targets[i].status());
+status.length === 1 ? status[0] : status;
+EOF
+        )
+        ;;
+    *)
+        echo "Usage: cinematic-grade on|off|toggle|status" >&2
+        exit 2
+        ;;
+esac
+
+gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon \
+    --method org.Cinnamon.Eval "$JS"

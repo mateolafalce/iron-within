@@ -1,0 +1,8 @@
+# The applet and the tests ship no npm, pip, or other package manifest.
+# This entry updates action pins under .github/workflows when those files exist.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

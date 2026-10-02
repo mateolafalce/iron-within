@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://yt3.googleusercontent.com/Z0SR63pwaDJhDz0Lx0zMaoUo-RjtOBCiVBCQ16jBcuqiEh9c-4VYIN97ZEjTUOItu2wuY0qD=s160-c-k-c0x00ffffff-no-rj" alt="Iron Within" width="160" height="160">
+  <img src="assets/iron-within.jpg" alt="Iron Within" width="160" height="160">
 </p>
 
 <h1 align="center">Cinematic Grade</h1>

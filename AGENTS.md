@@ -37,7 +37,7 @@ There is no npm package and no pip manifest. Dependabot only covers GitHub Actio
 
 Changes to the applet, the grade session, the shaders, the presets, or the installer need the live check in `.cursor/skills/verify-cinematic-grade/SKILL.md`. Drive the one running Cinnamon session. Do not start a second desktop, do not run `killall cinnamon`, and do not call `RestartCinnamon` from a verification recipe.
 
-Proof files under `.cursor/skills/verify-cinematic-grade/artifacts/` are session output. `demo/` is local capture output. Do not commit either.
+Proof files under `.cursor/skills/verify-cinematic-grade/artifacts/` are session output. `demo/` is local capture output. Do not commit either. The README demo is a GitHub-hosted video, not a file in this tree.
 
 ## Invariants
 

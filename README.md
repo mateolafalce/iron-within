@@ -1,4 +1,6 @@
-# Cinematic Grade
+<h1 align="center">Cinematic Grade</h1>
+
+https://github.com/user-attachments/assets/3d149e01-b47c-471e-8a52-fb1039219117
 
 Cinematic Grade is a real-time color filter for the whole Cinnamon desktop. Normal use is a panel icon. One click turns the grade on. Another click turns the grade off. The gesture is the same as Desaturate All.
 

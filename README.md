@@ -65,6 +65,7 @@ iron-within/
   fixtures/videoplayback.json
   install.sh
   uninstall.sh
+  LICENSE                 MIT
 ```
 
 ## Dependencies
@@ -223,3 +224,7 @@ To turn the grade off and keep the applet, use one of these actions:
 - **An edit to presets.json did nothing.** The file must be valid JSON. When you save the file, the applet reads it again. The grade must be on before the change is visible.
 - **Generic Wayland (GNOME, KDE, Sway).** This applet does not load there. Write the same shader pair as an effect for that compositor. There is no single switch for every desktop.
 - **Color profile.** This applet does not call colord, `xcalib`, `dispwin`, or `xrandr --gamma`.
+
+## License
+
+MIT. See `LICENSE`. The copyright holder is Mateo.

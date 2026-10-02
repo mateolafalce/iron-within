@@ -1,6 +1,6 @@
 # Turn the grade on and off
 
-The panel icon, the shortcut, and `bin/cinematic-grade` each turn the desktop grade on or off. On, the icon turns teal and the tooltip names the preset. Off, the icon returns to the symbolic color and the tooltip says the grade is off.
+The panel icon, the shortcut, and `bin/cinematic-grade` each turn the desktop grade on or off. On, the icon is `panel/icon-active.png`, the icon style is `color: #3da9a0;`, and the tooltip names the preset. Off, the icon is `panel/icon.png`, the style is empty, and the tooltip says the grade is off.
 
 ## Sub-features
 
@@ -12,7 +12,7 @@ The panel icon, the shortcut, and `bin/cinematic-grade` each turn the desktop gr
 
 ## How to get to it (user POV)
 
-- Left-click the panel icon (graphics symbol). The tooltip reads `Cinematic grade: off. Click to turn the grade on.` or `Cinematic grade: on (<preset>). Click to turn the grade off.`
+- Left-click the hooded panel icon. The tooltip reads `Cinematic grade: off. Click to turn the grade on.` or `Cinematic grade: on (<preset>). Click to turn the grade off.`
 - Press the shortcut. The default binding is Super+G (`<Super>g`).
 - Run `bin/cinematic-grade on`, `off`, `toggle`, or `status`.
 
@@ -29,7 +29,7 @@ Preconditions:
 - **Capture the off icon.** Run `control-grade shot .cursor/skills/verify-cinematic-grade/artifacts/toggle/icon-off.png`. The PNG is only the applet actor.
 - **Open the swatch.** Run `control-grade swatch open`, then `control-grade swatch shot .cursor/skills/verify-cinematic-grade/artifacts/toggle/swatch-off.png`, then `control-grade chroma .cursor/skills/verify-cinematic-grade/artifacts/toggle/swatch-off.png`. Record the chroma. This capture does not prove the grade. See Gotchas.
 - **Click on.** Left-click the icon. Run `control-grade click`. `status.active` is true, `tooltip` is `Cinematic grade: on (iron_within). Click to turn the grade off.`, `iconStyle` is `color: #3da9a0;`, `status.effects` is 3, and `status.passes` is 3. `muffinUnredirect` is false. `restoreFile` is `{"value":false}` when the off-state muffin value was false, or `{"value":true}` when that value was true. Save this object as `artifacts/toggle/after-click.json`.
-- **Capture the on icon and swatch.** Run `control-grade shot .cursor/skills/verify-cinematic-grade/artifacts/toggle/icon-on.png`, `control-grade swatch shot .cursor/skills/verify-cinematic-grade/artifacts/toggle/swatch-on.png`, and `control-grade chroma .cursor/skills/verify-cinematic-grade/artifacts/toggle/swatch-on.png`. The assertion that the grade is on is the tooltip, `iconStyle`, `effects`, and `passes`. The swatch chroma staying high is the expected capture result, not a failure.
+- **Capture the on icon and swatch.** Run `control-grade shot .cursor/skills/verify-cinematic-grade/artifacts/toggle/icon-on.png`, `control-grade swatch shot .cursor/skills/verify-cinematic-grade/artifacts/toggle/swatch-on.png`, and `control-grade chroma .cursor/skills/verify-cinematic-grade/artifacts/toggle/swatch-on.png`. The assertion that the grade is on is the tooltip, `iconStyle`, `effects`, and `passes`. The swatch chroma is not the assertion. It may stay high, or it may fall when the capture includes the shader.
 - **Click off.** Run `control-grade click`. `status.active` is false, the off tooltip is back, `iconStyle` is empty, `effects` and `passes` are 0, `restoreFile` is null, and `muffinUnredirect` is the boolean recorded while off.
 - **Shortcut on.** Press the binding. Run `control-grade shortcut`. The on tooltip, teal style, `effects` 3, and `passes` 3 return. Stdout includes `"sent": "<Super>g"`.
 - **Shortcut off.** Run `control-grade shortcut` again. The grade is off and `restoreFile` is null.
@@ -42,7 +42,7 @@ Preconditions:
 ## Gotchas
 
 - `iron_within` uses no sharpen, so a mounted grade is 3 effects and 3 passes (one grade pass on each of the three actors). A preset with sharpen above 0 is 6 and 6. Do not assert 3 after changing preset.
-- An X root screenshot does not include the Muffin shader. The checked run saved identical swatch files, both chroma 149. The icon crop mean went from about 50 to about 88 and stayed gray, with no `#3da9a0` pixels. Do not fail the toggle for that. Fail it when the tooltip, `iconStyle`, `effects`, or `passes` stay put.
+- The X capture sometimes includes the Muffin shader and sometimes does not. One run saved two red swatches, both chroma 149, and a gray icon crop. The run after the hooded icon landed saw the shader: swatch off was flat red (chroma 149) and swatch on was desaturated grain (chroma 0). The icon actor crop stayed gray even though `icon-active.png` is teal, because `iron_within` saturation is 0 and the capture of that actor was gray. Assert the tooltip, `iconStyle`, `effects`, and `passes`. Do not fail the toggle because the swatch chroma stayed high or fell. Fail it when those four stay put.
 - Grain is on for `iron_within`. A capture that someday includes the shader will not match pixel for pixel between two "on" shots.
 - The hardware cursor is not graded. Do not use the cursor as the swatch.
 - `control-grade click` refuses an actor that is not on a screen edge. Do not fall back to a coordinate in the middle of the screen.

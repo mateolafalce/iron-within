@@ -2,7 +2,7 @@
 
 https://github.com/user-attachments/assets/3d149e01-b47c-471e-8a52-fb1039219117
 
-Cinematic Grade is a real-time color filter for the whole Cinnamon desktop. Normal use is a panel icon. One click turns the grade on. Another click turns the grade off. The gesture is the same as Desaturate All.
+Cinematic Grade is a real-time color filter for the whole Cinnamon desktop. Normal use is a panel icon, a hooded figure. One click turns the grade on. Another click turns the grade off. The gesture is the same as Desaturate All. While the grade is on, the same figure takes a teal grade.
 
 Super+G does the same action. The grade starts off.
 
@@ -51,6 +51,8 @@ iron-within/
   gradeLogic.js           preset rules, unredirect plan, project root
   gradeEngine.js          the one grade session
   panel/applet.js         panel icon, click, shortcut
+  panel/icon.png          hooded mark, grade off
+  panel/icon-active.png   same mark with the teal grade
   panel/gradeLogic.js     symlink to ../gradeLogic.js
   panel/gradeEngine.js    symlink to ../gradeEngine.js
   panel/metadata.json
@@ -67,6 +69,8 @@ iron-within/
   fixtures/videoplayback.json
   install.sh
   uninstall.sh
+  packaging/mint/         Cinnamon Spices listing (README, info.json, screenshot)
+  scripts/pack_spice.py   builds dist/iron-within-panel@mateo/
   LICENSE                 MIT
 ```
 
@@ -79,6 +83,18 @@ No extra package is required. You need:
 - `gsettings` and `gdbus`. Both come with the desktop.
 
 You do not need picom, vkBasalt, an external LUT, or a Python environment.
+
+## Linux Mint
+
+The publishable applet is a Cinnamon Spice. Build it from this checkout:
+
+```bash
+.venv/bin/python scripts/pack_spice.py
+```
+
+That writes `dist/iron-within-panel@mateo/`. A pull request to [linuxmint/cinnamon-spices-applets](https://github.com/linuxmint/cinnamon-spices-applets) adds that directory. After the pull request is merged, Mint installs it from System Settings, Applets, Download. The listing covers Cinnamon 6.0 and newer: Mint 21.3, and Mint 22 through 22.3.
+
+`install.sh` below is how this checkout is installed while developing. It is not the Spices install.
 
 ## Installation
 
@@ -93,7 +109,7 @@ If the icon does not appear, press Alt+F2. Type `r`. Press Enter. The `r` comman
 
 ## Use
 
-Click the panel icon (graphics symbol). When the grade is on, the icon turns teal. Another click turns the grade off.
+Click the panel icon (the hooded mark). When the grade is on, the icon switches to the teal version of that mark. Another click turns the grade off.
 
 The default shortcut is **Super+G**. If the shortcut value in the settings is empty, the shortcut is off. The click still works.
 

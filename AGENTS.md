@@ -33,6 +33,14 @@ bin/cinematic-grade status
 
 There is no npm package and no pip manifest. Dependabot only covers GitHub Actions pins, and only when workflow files exist.
 
+`panel/icon.png` is the panel mark, taken from the hooded still. `panel/icon-active.png` is that mark with a teal grade. The applet shows the teal file while the grade is on, and still sets the icon style to `color: #3da9a0;`.
+
+```bash
+.venv/bin/python scripts/pack_spice.py
+```
+
+That builds `dist/iron-within-panel@mateo/` for Cinnamon Spices. The tree copies the engine and the shaders as real files. `dist/` is generated. Do not commit it. The listing text lives in `packaging/mint/`.
+
 ## Desktop checks
 
 Changes to the applet, the grade session, the shaders, the presets, or the installer need the live check in `.cursor/skills/verify-cinematic-grade/SKILL.md`. Drive the one running Cinnamon session. Do not start a second desktop, do not run `killall cinnamon`, and do not call `RestartCinnamon` from a verification recipe.

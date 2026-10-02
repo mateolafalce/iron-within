@@ -49,7 +49,7 @@ The harness is `.cursor/skills/verify-cinematic-grade/scripts/control-grade`. Ru
 
 User entry points:
 
-- Left click on the panel icon `applications-graphics-symbolic`. The tooltip is the state. On, the icon style is `color: #3da9a0;`.
+- Left click on the panel icon from `panel/icon.png` (the hooded mark). The tooltip is the state. On, the icon file is `panel/icon-active.png` and the icon style is `color: #3da9a0;`.
 - The shortcut stored on the applet. The default is `<Super>g`. An empty value turns the shortcut off. The click and the CLI still work.
 - Right click, then `Configure...`. That opens `xlet-settings` for this instance. Labels come from `panel/settings-schema.json`: `Preset`, `Intensity`, `Shortcut to toggle the grade`, `Keep fullscreen windows composited while the grade is on`.
 - `bin/cinematic-grade on|off|toggle|status`.
@@ -79,7 +79,7 @@ Proof standards:
 - Drive the icon, the shortcut, and `bin/cinematic-grade`. Do not call `setActive` from a private eval and count that as the click.
 - Capture the action and the next `observe`, not only the last picture.
 - A passing `status.active` is not enough. The tooltip, the icon style, and `effects` / `passes` have to move with it.
-- An X screenshot does not include the Muffin shader. On this session the swatch was byte-identical off and on (chroma 149 both times). The icon crop got brighter and stayed gray. It did not show `#3da9a0`. Assert `iconStyle`, the tooltip, `effects`, and `passes`. Keep the shots so a later run can see that the capture path is still blind.
+- An X screenshot may or may not include the Muffin shader. One session saved identical swatches (chroma 149 both times) and a gray icon crop. A later session, after the hooded icon, saved a flat red swatch off (chroma 149) and a desaturated grainy swatch on (chroma 0). Assert `iconStyle`, the tooltip, `effects`, and `passes`. Keep the shots. Do not fail the toggle because the swatch chroma stayed high or fell.
 - Side effect of the fullscreen switch, when it is on: turning the grade on writes `unredirect.json` and forces the muffin key false. Turning the grade off deletes the file and writes the saved boolean back. Read the key with `observe`. Do not trust the switch name alone.
 - Intensity 0 leaves the grade active and the icon teal. The settings copy says 0 is the original image. Do not treat a teal icon as proof that the pixels changed.
 - Do not screenshot the whole desktop. The icon crop and the swatch are the pictures.

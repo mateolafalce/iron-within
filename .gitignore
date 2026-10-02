@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 .cursor/skills/verify-cinematic-grade/artifacts/
 demo/
+dist/

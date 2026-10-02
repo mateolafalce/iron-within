@@ -5,6 +5,8 @@
 const Applet = imports.ui.applet;
 const Main = imports.ui.main;
 const Settings = imports.ui.settings;
+const Gio = imports.gi.Gio;
+const GLib = imports.gi.GLib;
 
 const Logic = require("./gradeLogic").GradeLogic;
 const Engine = require("./gradeEngine");
@@ -23,7 +25,7 @@ MyApplet.prototype = {
         Applet.IconApplet.prototype._init.call(this, orientation, panelHeight, instanceId);
 
         this.metadata = metadata;
-        this.set_applet_icon_symbolic_name("applications-graphics-symbolic");
+        this._applyIcon(false);
         this.set_applet_tooltip("Cinematic grade: off. Click to turn the grade on.");
 
         this._engine = Engine.getEngine(Logic.resolveProjectRoot(metadata.path));
@@ -97,14 +99,26 @@ MyApplet.prototype = {
             if (state.error)
                 text += " " + state.error;
             this.set_applet_tooltip(text);
-            this._setIconColor("#3da9a0");
+            this._applyIcon(true);
         } else if (state.error) {
             this.set_applet_tooltip("Cinematic grade: off. " + state.error);
-            this._setIconColor(null);
+            this._applyIcon(false);
         } else {
             this.set_applet_tooltip("Cinematic grade: off. Click to turn the grade on.");
-            this._setIconColor(null);
+            this._applyIcon(false);
         }
+    },
+
+    _applyIcon: function(active) {
+        let name = active ? "icon-active.png" : "icon.png";
+        let path = GLib.build_filenamev([this.metadata.path, name]);
+        if (!Gio.File.new_for_path(path).query_exists(null))
+            path = GLib.build_filenamev([this.metadata.path, "icon.png"]);
+        if (Gio.File.new_for_path(path).query_exists(null))
+            this.set_applet_icon_path(path);
+        else
+            this.set_applet_icon_symbolic_name("applications-graphics-symbolic");
+        this._setIconColor(active ? "#3da9a0" : null);
     },
 
     _setIconColor: function(color) {

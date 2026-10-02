@@ -34,6 +34,6 @@ fi
 
 python3 "$ROOT/scripts/cinnamon_settings.py" install "$APPLET_UUID" "$EXT_UUID"
 
-echo "Panel icon: click to toggle, same gesture as Desaturate All."
+echo "Panel icon: the hooded mark. Click to toggle, same gesture as Desaturate All."
 echo "Shortcut: Super+G. The grade starts off."
 echo "Right-click the icon and choose Configure to pick a preset or intensity."
